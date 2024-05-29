@@ -2,6 +2,7 @@ import random
 import time
 from typing import Any, Sequence
 
+from loguru import logger
 from selenium import webdriver
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -12,7 +13,7 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.common.exceptions import NoSuchElementException
 
 
-class YandexMapsCollector:
+class LinksCollector:
     def __init__(self, driver: webdriver.Chrome | webdriver.Firefox) -> None:
         self._driver = driver
         self._last_element = None
@@ -22,16 +23,24 @@ class YandexMapsCollector:
 
     def __call__(self, search_text: str):
         self._driver.get("https://yandex.ru/maps")
+        logger.info(f"Start LinksCollector")
         el = self._driver.find_element(By.XPATH, "//form//input")
         time.sleep(self._random_delay())
         el.send_keys(search_text, Keys.ENTER)
         time.sleep(self._random_delay())
+        logger.info(f"Found result for the request: {search_text}")
         return self._get_full_links()
 
     def _get_full_links(self):
+        logger.info(f"Start parse links...")
         _list_items = []
         while True:
-            ul = self._driver.find_element(By.TAG_NAME, "ul")
+            time.sleep(self._random_delay())
+            # ul = self._driver.find_element(By.TAG_NAME, "ul")
+            ul = WebDriverWait(
+                self._driver,
+                10,
+            ).until(EC.presence_of_element_located((By.CLASS_NAME, "search-list-view__list")))
             _list_items += self._parse_links(ul.find_elements(By.TAG_NAME, "li"))
             blocks = ul.find_elements(By.TAG_NAME, "div")
             ActionChains(self._driver).scroll_to_element(blocks[-1]).perform()
@@ -40,6 +49,7 @@ class YandexMapsCollector:
             )
 
             if el == self._last_element:
+                logger.info(f"Collect all items. Closing LinkCollector...")
                 break
             time.sleep(self._random_delay())
 
@@ -55,7 +65,7 @@ class YandexMapsCollector:
                 res.append(element.find_element(By.TAG_NAME, "a").get_attribute("href"))
             finally:
                 self._last_element = element
-
+        logger.info(f"Found chain links: {res}")
         return res
 
 
@@ -67,16 +77,20 @@ class Parser:
         self._driver = driver
 
     def __call__(self, links: list[str]):
+        logger.info(f"Starting Parser...")
         result_list = []
 
         for link in links:
+            logger.info(f"Go to page {link}")
             self._driver.get(link)
             try:
                 item = self._driver.find_element(By.CLASS_NAME, "sidebar-container")
-                result_list.append(self._get_info(item))
+                data = self._get_info(item)
+                result_list.append(data)
+                logger.info(f"Recive new data {data}")
 
-            except NoSuchElementException:
-                print()
+            except NoSuchElementException as ex:
+                logger.warning(ex)
 
         return result_list
 
@@ -105,9 +119,11 @@ class Parser:
                 )
             ]
         )
-        item_info["site"] = contacts_block.find_element(
-            By.CLASS_NAME, "business-urls-view__link"
-        ).get_attribute("href").split("?")[0]
+        item_info["site"] = (
+            contacts_block.find_element(By.CLASS_NAME, "business-urls-view__link")
+            .get_attribute("href")
+            .split("?")[0]
+        )
 
         schedule_block = schedule_block.find_element(
             By.CLASS_NAME, "card-dropdown-view"
@@ -121,7 +137,9 @@ class Parser:
         schedule_items = []
         for item in schedule_list:
             try:
-                schedule_element = item.find_element(By.CLASS_NAME, "business-working-intervals-view__item")
+                schedule_element = item.find_element(
+                    By.CLASS_NAME, "business-working-intervals-view__item"
+                )
                 ac.scroll_to_element(item).perform()
                 week_day = schedule_element.find_element(
                     By.CLASS_NAME, "business-working-intervals-view__day"
