@@ -1,5 +1,6 @@
 import random
 import time
+from typing import Any, Sequence
 
 from selenium import webdriver
 from selenium.webdriver.support.wait import WebDriverWait
@@ -56,3 +57,93 @@ class YandexMapsCollector:
                 self._last_element = element
 
         return res
+
+
+class Parser:
+    def __init__(
+        self,
+        driver: webdriver.Chrome,
+    ) -> None:
+        self._driver = driver
+
+    def __call__(self, links: list[str]):
+        result_list = []
+
+        for link in links:
+            self._driver.get(link)
+            try:
+                item = self._driver.find_element(By.CLASS_NAME, "sidebar-container")
+                result_list.append(self._get_info(item))
+
+            except NoSuchElementException:
+                print()
+
+        return result_list
+
+    def _get_info(self, item: WebElement):
+        item_info: dict[str, Sequence[Any]] = {}
+        item_info["title"] = item.find_element(By.TAG_NAME, "h1").text
+        item_info["type"] = (
+            item.find_element(By.CLASS_NAME, "breadcrumbs-view")
+            .find_elements(By.TAG_NAME, "a")[-1]
+            .text
+        )
+
+        address_block, contacts_block, schedule_block = item.find_elements(
+            By.CLASS_NAME, "business-contacts-view__block"
+        )
+
+        item_info["address"] = address_block.find_element(
+            By.CLASS_NAME, "business-contacts-view__address-link"
+        ).text
+
+        item_info["contacts"] = [
+            el.find_element(By.TAG_NAME, "span").text
+            for el in contacts_block.find_elements(By.CLASS_NAME, "card-phones-view")
+        ]
+        item_info["site"] = contacts_block.find_element(
+            By.CLASS_NAME, "business-urls-view__link"
+        ).get_attribute("href")
+
+        schedule_block = schedule_block.find_element(
+            By.CLASS_NAME, "card-dropdown-view"
+        )
+        schedule_block.click()
+        ac = ActionChains(self._driver).scroll_to_element(schedule_block)
+        ac.perform()
+        schedule_list = schedule_block.find_element(
+            By.CLASS_NAME, "card-dropdown-view__content"
+        ).find_elements(By.CLASS_NAME, "card-feature-view__content")
+        schedule_items = []
+        for item in schedule_list:
+            try:
+                schedule_element = WebDriverWait(
+                    self._driver,
+                    10,
+                ).until(
+                    EC.presence_of_element_located(
+                        (By.CLASS_NAME, "business-working-intervals-view__item")
+                    )
+                )
+                ac.scroll_to_element(item).perform()
+                week_day = schedule_element.find_element(
+                    By.CLASS_NAME, "business-working-intervals-view__day"
+                ).text
+                schedule = schedule_element.find_element(
+                    By.CLASS_NAME, "business-working-intervals-view__interval"
+                ).text
+            except NoSuchElementException:
+                continue
+            schedule_items.append(f"{week_day} - {schedule}")
+
+        item_info["schedule"] = "\n".join(schedule_items)
+
+        lat, long = (
+            self._driver.find_element(
+                By.CLASS_NAME, "search-placemark-view"
+            ).get_attribute("data-coordinates")
+        ).split(",")
+        item_info["lat"] = lat
+        item_info["long"] = long
+
+        return item_info
