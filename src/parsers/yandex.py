@@ -97,13 +97,17 @@ class Parser:
             By.CLASS_NAME, "business-contacts-view__address-link"
         ).text
 
-        item_info["contacts"] = [
-            el.find_element(By.TAG_NAME, "span").text
-            for el in contacts_block.find_elements(By.CLASS_NAME, "card-phones-view")
-        ]
+        item_info["contacts"] = " ".join(
+            [
+                el.find_element(By.TAG_NAME, "span").text
+                for el in contacts_block.find_elements(
+                    By.CLASS_NAME, "card-phones-view"
+                )
+            ]
+        )
         item_info["site"] = contacts_block.find_element(
             By.CLASS_NAME, "business-urls-view__link"
-        ).get_attribute("href")
+        ).get_attribute("href").split("?")[0]
 
         schedule_block = schedule_block.find_element(
             By.CLASS_NAME, "card-dropdown-view"
@@ -117,14 +121,7 @@ class Parser:
         schedule_items = []
         for item in schedule_list:
             try:
-                schedule_element = WebDriverWait(
-                    self._driver,
-                    10,
-                ).until(
-                    EC.presence_of_element_located(
-                        (By.CLASS_NAME, "business-working-intervals-view__item")
-                    )
-                )
+                schedule_element = item.find_element(By.CLASS_NAME, "business-working-intervals-view__item")
                 ac.scroll_to_element(item).perform()
                 week_day = schedule_element.find_element(
                     By.CLASS_NAME, "business-working-intervals-view__day"
